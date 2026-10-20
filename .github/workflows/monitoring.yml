@@ -1,0 +1,73 @@
+name: Task 5 Monitoring Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Check Application Syntax
+        run: |
+          python -m py_compile app.py
+
+      - name: Build Docker Image
+        run: |
+          docker build -t task5-monitoring-app:${{ github.sha }} .
+
+      - name: Run Container
+        run: |
+          docker run -d --name task5-app -p 5000:5000 task5-monitoring-app:${{ github.sha }}
+
+      - name: Check Application Health
+        run: |
+          for i in {1..10}; do
+            if curl --fail http://localhost:5000/health; then
+              exit 0
+            fi
+            sleep 3
+          done
+          docker logs task5-app
+          exit 1
+
+      - name: Save Deployment Version
+        if: success()
+        run: |
+          echo "Commit: $GITHUB_SHA" >> deployment.log
+          echo "Result: SUCCESS" >> deployment.log
+          cat deployment.log
+
+      - name: Pipeline Failure Log
+        if: failure()
+        run: |
+          echo "Commit: $GITHUB_SHA" > failure.log
+          echo "Result: FAILED" >> failure.log
+
+      - name: Upload Pipeline Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task5-pipeline-logs
+          path: |
+            deployment.log
+            failure.log
+          if-no-files-found: ignore
